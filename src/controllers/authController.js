@@ -13,8 +13,10 @@ const OTPService = require("../services/otpService");
 const MAX_ATTEMPTS = 5;
 const LOCK_TIME = 2 * 60 * 60 * 1000;
 const OTP_EXPIRY = 5 * 60 * 1000;
+
 exports.register = async (req, res) => {
-  const { username, email, phoneNumber, password, isParent } = req.body;
+  const { username, email, phoneNumber, password, isParent, responses } =
+    req.body;
 
   try {
     if (!email && !phoneNumber) {
@@ -35,9 +37,10 @@ exports.register = async (req, res) => {
         const otp = OTPService.generateOTP();
         await OTPService.saveOTP(email || phoneNumber, otp);
         await OTPService.sendOTP(email || phoneNumber, otp);
-        return res
-          .status(200)
-          .json({ message: "OTP sent again. Please verify your account." });
+        return res.status(200).json({
+          message: "OTP sent again. Please verify your account.",
+          otp,
+        });
       } else {
         return res
           .status(400)
@@ -57,12 +60,15 @@ exports.register = async (req, res) => {
       password_hash,
       isVerified: false,
       isParent,
+      responses,
       currentOTP: otp,
     });
 
     await newUser.save();
 
-    res.status(200).json({ message: "OTP sent. Please verify your account." });
+    res
+      .status(200)
+      .json({ message: "OTP sent. Please verify your account.", otp });
   } catch (error) {
     console.error("Error during registration:", error);
     res.status(500).json({ message: "Internal server error." });
@@ -79,12 +85,16 @@ exports.login = async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ message: "Invalid email/phone or password." });
+      return res
+        .status(400)
+        .json({ message: "Invalid email/phone or password." });
     }
 
     // Check if user is verified
     if (!user.isVerified) {
-      return res.status(400).json({ message: "Please verify your account first." });
+      return res
+        .status(400)
+        .json({ message: "Please verify your account first." });
     }
 
     // Validate password
@@ -103,29 +113,25 @@ exports.login = async (req, res) => {
         }
       }
       await loginAttempt.save();
-      return res.status(400).json({ message: "Invalid email/phone or password." });
+      return res
+        .status(400)
+        .json({ message: "Invalid email/phone or password." });
     }
 
     // Generate and save OTP
     const otp = OTPService.generateOTP();
-    await PasswordResetToken.deleteOne({ user_id: user._id }); // Ensure no old OTP is there
-    const newResetToken = new PasswordResetToken({
-      user_id: user._id,
-      token: otp,
-      expires_at: new Date(Date.now() + OTP_EXPIRY),
-    });
-    await newResetToken.save();
-
-    // Send OTP
+    await OTPService.saveOTP(user.email || user.phoneNumber, otp);
     await OTPService.sendOTP(user.email || user.phoneNumber, otp);
 
-    res.status(200).json({ message: "OTP sent. Please verify the OTP to complete login." });
+    res.status(200).json({
+      message: "OTP sent. Please verify the OTP to complete login.",
+      otp,
+    });
   } catch (error) {
     console.error("Error during login:", error);
     res.status(500).json({ message: "Internal server error." });
   }
 };
-
 
 exports.forgotPassword = async (req, res) => {
   try {
@@ -232,74 +238,48 @@ exports.verifyOTP = async (req, res) => {
   const { email, otp } = req.body;
 
   try {
-    // Find the user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "User not found." });
     }
 
-    // Find the latest OTP for the user
-    const resetToken = await PasswordResetToken.findOne({
-      user_id: user._id,
-      token: otp,
-    });
-
-    if (!resetToken) {
+    const isValidOTP = await OTPService.verifyOTP(email, otp);
+    if (!isValidOTP) {
       return res.status(400).json({ message: "Invalid or expired OTP." });
     }
 
-    // Check if the OTP has expired
-    if (resetToken.expires_at < Date.now()) {
-      return res.status(400).json({ message: "OTP has expired." });
-    }
-
-    // Mark the user as verified
     user.isVerified = true;
     await user.save();
 
-    // Remove the used OTP
-    await PasswordResetToken.deleteOne({ _id: resetToken._id });
-
-    res.status(200).json({ message: "OTP verified successfully. User is now verified." });
+    res
+      .status(200)
+      .json({ message: "OTP verified successfully. User is now verified." });
   } catch (error) {
     console.error("Error verifying OTP:", error);
     res.status(500).json({ message: "Internal server error." });
   }
 };
-
-
 exports.resendOTP = async (req, res) => {
   const { email } = req.body;
 
   try {
-    // Find the user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "User not found." });
     }
 
-    // Invalidate the previous OTP
-    await PasswordResetToken.deleteOne({ user_id: user._id });
-
-    // Generate a new OTP
     const otp = OTPService.generateOTP();
-
-    // Save the new OTP and its expiry
-    const newResetToken = new PasswordResetToken({
-      user_id: user._id,
-      token: otp,
-      expires_at: new Date(Date.now() + OTP_EXPIRY),
-    });
-    await newResetToken.save();
-
-    // Send the new OTP
+    await OTPService.saveOTP(email, otp);
     await OTPService.sendOTP(email, otp);
 
-    res.status(200).json({ message: "OTP sent again. Please check your email or phone." });
+    res
+      .status(200)
+      .json({
+        message: "OTP sent again. Please check your email or phone.",
+        otp,
+      });
   } catch (error) {
     console.error("Error resending OTP:", error);
     res.status(500).json({ message: "Internal server error." });
   }
 };
-
-
