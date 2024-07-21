@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
   responses: [
     {
       questionId: { type: mongoose.Schema.Types.ObjectId, ref: "Question" },
-      answer: { type: String, required: true },
+      answer: { type: mongoose.Schema.Types.Mixed, required: true },
     },
   ],
   role: { type: String, enum: ["user", "superuser", "admin"], default: "user" },

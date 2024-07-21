@@ -63,7 +63,6 @@ exports.register = async (req, res) => {
       responses,
       currentOTP: otp,
     });
-
     await newUser.save();
 
     res
@@ -83,7 +82,6 @@ exports.login = async (req, res) => {
     const user = await User.findOne({
       $or: [{ email: emailOrPhone }, { phoneNumber: emailOrPhone }],
     });
-
     if (!user) {
       return res
         .status(400)
@@ -272,12 +270,10 @@ exports.resendOTP = async (req, res) => {
     await OTPService.saveOTP(email, otp);
     await OTPService.sendOTP(email, otp);
 
-    res
-      .status(200)
-      .json({
-        message: "OTP sent again. Please check your email or phone.",
-        otp,
-      });
+    res.status(200).json({
+      message: "OTP sent again. Please check your email or phone.",
+      otp,
+    });
   } catch (error) {
     console.error("Error resending OTP:", error);
     res.status(500).json({ message: "Internal server error." });
